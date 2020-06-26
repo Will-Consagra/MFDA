@@ -30,6 +30,10 @@ class Domain(ABC):
 		"""
 		pass 
 
+	@abstractmethod
+	def create_mesh(self):
+		pass 
+
 	def inner_product(self, X1, X2=None):
 		"""
 		performs required checks 

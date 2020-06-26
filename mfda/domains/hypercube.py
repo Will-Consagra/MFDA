@@ -1,7 +1,10 @@
 from .domain import Domain 
 
+from dolfin import UnitIntervalMesh, UnitSquareMesh, UnitCubeMesh
+
 import numpy as np
 import types 
+import itertools
 from scipy.spatial import Delaunay
 
 class Hypercube(Domain):
@@ -13,10 +16,11 @@ class Hypercube(Domain):
 	Notes: 
 	"""
 
-	def __init__(self, p):
+	def __init__(self, p, marginal_seeds=None):
 		if not isinstance(p, int) or p < 1:
 			raise ValueError
 		self.p = p 
+		self.marginal_seeds = marginal_seeds
 		self._mesh = None
 
 	@property
@@ -69,40 +73,21 @@ class Hypercube(Domain):
 		Diff = X1 - X2 
 		return Diff @ Diff.T
 
-	def aniso_tessellation(self, seeds, metric=None):
+	def create_mesh(self):
 		"""
-		Perform a tessellation of the unit hypercube
-
-		Parameters: 
-				   seeds: Mxp array of vertices for the tessellation 
-				   metric: None or one for performing anisotropic tessellation 
-
-		Notes: - This function will call some function in the mesh_adaptation.py file 
-				to perform the heavy lifting.
-				- Should add option of whether we want an anisotropic mesh over a fixed set of seeds or to re-sample the seeds based on 
-					the local metric field defined by metric 
+		Arguments:
+			marginal_seeds: tuple of length p specifying the number of marginal seeds in the tessellation
 		"""
-		if not self.in_domain([seeds]):
-			raise ValueError
+		if self.p == 1:
+			self.mesh = UnitIntervalMesh(*self.marginal_seeds)
+		elif self.p == 2:
+			self.mesh = UnitSquareMesh(*self.marginal_seeds)
+		elif self.p == 3:
+			self.mesh = UnitCubeMesh(*self.marginal_seeds)
+		else: 
+			seeds = np.array(list(itertools.product(*[list(range(self.marginal_seeds[i])) for i in range(self.p)])))
+			Dtess = Delaunay(seeds) 
+			self.mesh = Dtess ## Note: this object is of different type than the other meshes!!
+		return self
 
-		Dtess = Delaunay(seeds)
-
-		if isinstance(metric, types.FunctionType):
-			mesh = {}
-			if self.p == 2:
-				mesh["xy"] = Dtess.points 
-				mesh["Triangles"] = Dtess.simplices
-			elif self.p == 3:
-				mesh["xyz"] = Dtess.points 
-				mesh["Tetrahedra"] = Dtess.simplices
-			else:
-				raise ValueError("Anisotropic meshing not yet implemented for p > 3") 
-			## Call anisotropic meshing functions in mesh_adaptation.py 
-
-		self.mesh = mesh
-
-	def marginal_domains(self):
-		"""
-		Eventually this will be inherited from ProductManfold class 
-		"""
-		return [(0,1)]*self.p
+	

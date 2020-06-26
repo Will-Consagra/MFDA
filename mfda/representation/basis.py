@@ -11,9 +11,8 @@ class FBasis(ABC):
 	"""
 
 	@abstractmethod 
-	def __init__(self, domain):
-		## Perform parameter checks and set arguments as corresponding class attributes
-		self.domain = domain
+	def __init__(self):
+		pass 
 		
 	def __repr__(self):
 		"""Representation of an FBasis object"""

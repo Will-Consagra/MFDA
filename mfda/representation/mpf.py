@@ -1,8 +1,6 @@
-from skfda.representation.basis import BSpline, Fourier
 from collections import namedtuple 
 from itertools import product
 
-from .basis import FBasis
 import sys 
 sys.path.append("..")
 from utils.tensor_decomposition import CPD
@@ -10,34 +8,26 @@ from utils.tensor_decomposition import CPD
 import numpy as np
 import tensorly as tl
 
-MBS = {"BSpline":BSpline, 
-		"Fourier":Fourier}
 svdtuple = namedtuple("SVD", ["U", "s", "Vt"])
 
-class MPF(FBasis):
+class MPF(object):
 	"""
 	Marginal product functional model basis system. 
 
 	Attributes: 	    
-		domain: Domain object 
 		K: Rank (number of basis functions)
-		mb_dims = array like ==> number of basis functions in each marginal basis system
-		mb_type = string (type of marginal basis system) ["BSpline", "Fourier"]
-		algorithm = the tensord decomposition algorithm used in fitting the basis "CPD", ... 
+		marginal_basis_system: list of basis function objects, inheriting from Fbasis
+		algorithm: the tensord decomposition algorithm used in fitting the basis "CPD", ... 
 
-	Notes: -We take inspiration from the sklearn fit - predict api. An object of class MPF can be instantiated but must be 
-		   "fit" before using methods such as evaluate and so on. Must implement a similiar method to check_is_fitted in sklearn.
-		   -All of the fit parameters should be passed through the __init__ function.
-		   -Should be able to pass in parameters to marginal basis and to the tensor decomposition algorithm
+	Notes: -- Consider multiple inheritance (FBasis, "Sklearn.predictive_model")
+	       -- Different fit methods are hackily thrown together, need to tighten up the control logic at some point 
 	"""
 
-	def __init__(self, domain, K, mb_dims, mb_type="BSpline", algorithm="CPD"):
-		super().__init__(domain) 
-		## perform checks between marginal_basis and the domain to make sure they are in accordance.
+	def __init__(self, K, marginal_basis_systems, nmode, algorithm="CPD"):
 		self.K = K
-		marginal_domains = domain.marginal_domains()
-		self.marginal_basis_systems = [MBS[mb_type](domain_range=marginal_domains[i], n_basis=mb_dims[i]) for i in range(domain.p)]
+		self.marginal_basis_systems = marginal_basis_systems
 		self.algo = algorithm
+		self.nmode = nmode
 
 	def fit(self, X, Y):
 		"""
@@ -48,13 +38,13 @@ class MPF(FBasis):
 			Y: (n1 x n2 x ... x np x N) dimensional tensor 
 		Note: All of the transformations should be done within this function.
 		"""
-		if not self.domain.in_domain(X):
-			raise ValueError 
+		## Need to implement a check that the data is of the correct dimensions and contained 
+		## within the marginal product domain defined by the marginal domains in marginal_basis_systems
 		## Check the tensor is the correct size and in accordance with the domain 
 		N = Y.shape[-1]
 		## Construct the SVD of all the basis matrices 
-		nmode = self.domain.dim
-		Phis = [self.marginal_basis_systems[d].evaluate(X[d]).T for d in range(nmode)]
+		nmode = self.nmode
+		Phis = [self.marginal_basis_systems[d].evaluate(X[d]) for d in range(nmode)]
 		Svds = [svdtuple(*np.linalg.svd(Phis[d], full_matrices=False)) for d in range(nmode)]
 		## Perform nmode-mode multiplication on Y to obtain transformed tensor G, e.g. G = Y X_1 U_1' X_2 U_2' ... X_nmode U_nmode'
 		G = tl.tenalg.multi_mode_dot(Y, [svdt.U.T for svdt in Svds], list(range(nmode)))
@@ -77,20 +67,39 @@ class MPF(FBasis):
 				raise NotImplementedError
 		return self
 
+	def fit_symmetric_2D(self, X, Y):
+		"""
+		Temporary method for exploratory purposes, will eventually be accomaded in classes main functionality.
+		"""
+		assert self.nmode == 2, "nmode > 2 not yet implemented!"
+		nmode = self.nmode
+		Phis = [self.marginal_basis_systems[0].evaluate(X[d]) for d in range(nmode)]
+		Svds = [svdtuple(*np.linalg.svd(Phis[d], full_matrices=False)) for d in range(nmode)]
+		G = Svds[0].U.T @ Y @ Svds[1].U 
+		S, C = np.linalg.eig(G)
+		idx = S.argsort()[::-1]
+		S = np.real(S[idx])
+		C = np.real(C[:, idx])
+		self.Clist  = [Svds[0].Vt.T @ np.diag(1/Svds[0].s) @ C[:, 0:self.K], 
+						Svds[1].Vt.T @ np.diag(1/Svds[1].s) @ C[:, 0:self.K]]
+		self.Smat = S[0:self.K]
+		return self 
+
 	def _Xi(self, X):
 		"""
 		X: list of marginal grids or list or point cloud
+		Note: I Think we are mistting smat!!!!!
 		"""
-		nmode = self.domain.dim
+		nmode = self.nmode
 		if isinstance(X, list): ## list of marginal grid points 
-			Xi = [np.prod(np.ix_(*[self.marginal_basis_systems[d].evaluate(X[d]).T @ self.Clist[d][:, k] for d in range(nmode)])) for k in range(self.K)]
+			Xi = [np.prod(np.ix_(*[self.marginal_basis_systems[d].evaluate(X[d]) @ self.Clist[d][:, k] for d in range(nmode)])) for k in range(self.K)]
 		elif isinstance(X, np.ndarray):
-			Xi = [np.prod(np.array([self.marginal_basis_systems[d].evaluate(X[:,d]).T @ self.Clist[d][:, k] for d in range(nmode)]),axis=1) for k in range(self.K)]
+			Xi = [np.prod(np.array([self.marginal_basis_systems[d].evaluate(X[:,d]) @ self.Clist[d][:, k] for d in range(nmode)]),axis=1) for k in range(self.K)]
 		else:
 			raise ValueError
 		return Xi
 
-	def _evaluate(self, X):
+	def predict(self, X):
 		"""
 		X: list of marginal grids or list or point cloud
 		"""
@@ -98,17 +107,20 @@ class MPF(FBasis):
 		Xi = self._Xi(X)
 		return sum(Xi)
 
+	def _evaluate(self, X):
+		raise NotImplementedError
+
 	def _gradient(self):
-		pass 
+		raise NotImplementedError 
 
 	def _inner_product_matrix(self, other=None):
-		pass 
+		raise NotImplementedError 
 
 	def _roughness_matrix(self):
 		"""
 		Pairwise inner product of Laplacian
 		"""
-		pass 
+		raise NotImplementedError 
 
 	@property
 	def training_ceofs(self):
