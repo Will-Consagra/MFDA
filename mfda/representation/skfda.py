@@ -1,7 +1,6 @@
 from .basis import FBasis
 import sys 
 sys.path.append("..")
-from domains.hypercube import Hypercube 
 from skfda.representation.basis import BSpline, FDataBasis
 import numpy as np 
 
@@ -16,7 +15,7 @@ class bspline(FBasis):
 	"""
 
 	def __init__(self, bspline_args):
-		self.domain = Hypercube(1)
+		self.domain = (0,1)
 		self.skfda_basis = BSpline(domain_range=(0,1), **bspline_args)
 		self.K = self.skfda_basis.n_basis
 
