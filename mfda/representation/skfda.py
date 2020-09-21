@@ -2,7 +2,7 @@ from .basis import FBasis
 import sys 
 sys.path.append("..")
 from domains.hypercube import Hypercube 
-from skfda.representation.basis import BSpline
+from skfda.representation.basis import BSpline, FDataBasis
 import numpy as np 
 
 class bspline(FBasis):
@@ -18,7 +18,7 @@ class bspline(FBasis):
 	def __init__(self, bspline_args):
 		self.domain = Hypercube(1)
 		self.skfda_basis = BSpline(domain_range=(0,1), **bspline_args)
-		self.K = self.skfda_basis
+		self.K = self.skfda_basis.n_basis
 
 	def _evaluate(self, X):
 		"""
@@ -42,3 +42,8 @@ class bspline(FBasis):
 
 	def _roughness_matrix(self):
 		return self.skfda_basis.penalty(derivative_degree=2)
+
+	def cross_roughness_matrix(self):
+		basis_fdata = FDataBasis(self.skfda_basis, np.eye(self.K))
+		basis_fdata_deriv = basis_fdata.derivative(2)
+		return basis_fdata.inner_product(basis_fdata_deriv)
