@@ -3,7 +3,6 @@ from itertools import product
 
 import sys 
 sys.path.append("..")
-from utils.tensor_decomposition import CPD
 
 import numpy as np
 import tensorly as tl
@@ -56,6 +55,8 @@ class MPF(object):
 			self.Clist = [Gu[:, 0:self.K], Gv[:, 0:self.K]]
 			self.Smat = Gs[0:self.K].reshape((1, self.K))
 		else: ## Tensor case, use specified tensor decomposition algorithm 
+			raise NotImplementedError
+			"""
 			if self.algo == "CPD":
 				weights, Cs = CPD(G, self.K, max_iter=100, tol=1e-08, normalize=False) ## want to allow passing in of **self.algo_params
 				self.Clist = [Svds[d].Vt.T @ np.diag(1/Svds[d].s) @ Cs[d] for d in range(nmode)] 
@@ -65,6 +66,7 @@ class MPF(object):
 					self.Smat = Cs[-1]
 			else:
 				raise NotImplementedError
+			"""
 		return self
 
 	def fit_symmetric_2D(self, X, Y):
