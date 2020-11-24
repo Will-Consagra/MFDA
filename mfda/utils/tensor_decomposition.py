@@ -391,7 +391,7 @@ def fCP_TPA(G, Jlst, Rlst, SVDs, lambdas, K, max_iter=100, tol=1e-8, init="svd",
 	return Ctilde, Smat, scalars
 
 #### ADMM ####
-def update_C(G_d, W_d, Gram_matrix, C_d, U_d, A_d, V_d, Dinv_d, lambda_d, tol, max_iter):
+def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol, max_iter, regularization, reg_params):
 	"""
 	Parameters:
 		G_d: nd.array (prod(mlst[-d]*N), m_d) folded data matrix 
@@ -399,38 +399,51 @@ def update_C(G_d, W_d, Gram_matrix, C_d, U_d, A_d, V_d, Dinv_d, lambda_d, tol, m
 		Gram_matrix: nd.array (K, K) W_d.T @ W_d
 		C_d: nd.array (m_d, K) current value of factor matrix 
 		U_d: nd.array (m_d, K) current value of dual variable 
-		A_d: (m_d, m_d) variation penalty matrix for d-marginal basis system 
+		T_d: (m_d, m_d) contraint matrix for d-marginal dimension system 
 		V_d: (m_d, m_d): right singular vectors of d-marginal basis evaluation matrix 
 		Dinv_d: (m_d, m_d): diagonal matrix of 1/singular values of d-marginal basis evaluation matrix  
 		lambda_d: float, regularization strenght 
+		d: int, marginal dimension
 		tol: tuple, stopping criteria, (tol_abs, tol_relative)
 		max_iter: int, stopping criteria
+		regularization: type of marginal regularization to use, for now, must be one of ("roughness", "tv")
+		reg_params: dict, {param:value} for any additional parameters the regularization may require
 	returns:
 		C_d: (m_d, K) update of factor matrix 
 		U_d: (m_d, K) update of dual variable  
 	"""
-	m_d = A_d.shape[0]
+	m_d = T_d.shape[0]
 	K = Gram_matrix.shape[0]
-	F = A_d @ V_d @ Dinv_d
-	FtF = F.T @ F 
+	F_d = V_d @ Dinv_d
+	T_tilde_d = T_d @ F_d 
+	Ttildet_Ttilde_d = T_tilde_d.T @ T_tilde_d
 	rho = np.trace(Gram_matrix)/K 
 	WtG = W_d.T @ G_d
+	if regularization == "roughness":
+		R_d = reg_params.get("Rlst")[d]
+		R_dI_inv = np.linalg.inv(lambda_d*R_d + rho*np.eye(m_d))
 	r_crit = np.inf; s_crit = np.inf; i = 0; C_d_tilde_0 = np.zeros(C_d.shape)
 	FLAG = 0 
+	#print("||rho I||_F", np.linalg.norm(rho*np.eye(m_d), ord="fro"), "||lambda_d*R_d||_F", np.linalg.norm(lambda_d*R_d, ord="fro"))
 	while (not FLAG) and (i <= max_iter):
-		Fbar = F@C_d + U_d 
-		C_d_tilde = l1_proximity_operator(Fbar, lambda_d, rho)
-		C_d_T = linalg.solve_sylvester(Gram_matrix, rho*FtF, WtG + rho*(C_d_tilde - U_d).T @ F)
+		Fbar_d = T_tilde_d@C_d + U_d 
+		if regularization == "roughness":
+			Z_d = l2_proximity_operator(R_dI_inv, Fbar_d, lambda_d, rho)
+		elif regularization == "tv":
+			Z_d = l1_proximity_operator(Fbar_d, lambda_d, rho)
+		C_d_T = linalg.solve_sylvester(Gram_matrix, rho*Ttildet_Ttilde_d, WtG + rho*(Z_d - U_d).T @ T_tilde_d)
 		C_d = C_d_T.T
-		U_d = U_d + F@C_d - C_d_tilde
-		primal_residual = F@C_d - C_d_tilde
-		dual_residual = rho*F.T@(C_d_tilde - C_d_tilde_0) ##double check could also be rho*F@(C_d_tilde - C_d_tilde_0) 
+		U_d = U_d + T_tilde_d@C_d - Z_d
+		primal_residual = T_tilde_d@C_d - Z_d
+		dual_residual = rho*T_tilde_d.T@(Z_d - C_d_tilde_0) ##double check could also be rho*T_tilde_d@(Z_d - C_d_tilde_0) 
 		r_crit = np.linalg.norm(primal_residual, ord="fro")
 		s_crit = np.linalg.norm(dual_residual, ord="fro")
-		tol_primal = np.sqrt(m_d)*tol[0] + tol[1]*np.max((np.linalg.norm(F@C_d, ord="fro"), np.linalg.norm(C_d_tilde)))
-		tol_dual = np.sqrt(m_d)*tol[0] + tol[1]*np.linalg.norm(F.T@U_d, ord="fro")
-		C_d_tilde_0 = C_d_tilde
+		tol_primal = np.sqrt(m_d)*tol[0] + tol[1]*np.max((np.linalg.norm(T_tilde_d@C_d, ord="fro"), np.linalg.norm(Z_d)))
+		tol_dual = np.sqrt(m_d)*tol[0] + tol[1]*np.linalg.norm(T_tilde_d.T@U_d, ord="fro")
 		i += 1
+		#print("Primal Residual", r_crit, tol_primal)
+		#print("Dual Residual", s_crit, tol_dual)
+		#print("iteration", i)
 		if (r_crit < tol_primal) and (s_crit < tol_dual):
 			FLAG = 1
 	return C_d, U_d
@@ -447,31 +460,45 @@ def update_S(G_D1, W_D1, Gram_matrix):
 	S_hat = np.linalg.inv(Gram_matrix) @ W_D1.T @ G_D1 
 	return S_hat.T  
 
-def l1_proximity_operator(Fbar, lambda_d, rho):
+def l1_proximity_operator(Fbar_d, lambda_d, rho):
 	"""
 	The so-called proximity operator of the function (lambda/rho)*|| ||_1
 	Parameters: 
-		Fbar: nd.array (md, K), FC_d + U_d 
+		Fbar_d: nd.array (md, K), T_d@F_d@C_d + U_d 
 		lambda_d: float, user specified regularization penalty 
 		rho: regularization for proximity operator 
 	Returns:
-		C_d_tilde: (md, K), update based on proximity operator (pseudo projection)
+		Z_d: (md, K), update based on proximity operator (pseudo projection)
 	"""
-	C_d_tilde = soft_thresholding(Fbar, lambda_d/rho)
-	return C_d_tilde
+	Z_d = soft_thresholding(Fbar_d, lambda_d/rho)
+	return Z_d
 
-def fPC_ADMM(G, Alst, SVDs, lambdas, deltas, K, max_iter=(100, 100), tol_inner=(1e-3, 1e-3), tol_outer=1e-8, init="svd"):
+def l2_proximity_operator(R_dI_inv, Fbar_d, lambda_d, rho):
 	"""
-	Implementation of the ADMM algorithm from  Sidiropoulos & Huang, 2016 to solve regularization tensor decomposition.
-	This implementation currently assumes each marginal basis system:
-		1) Is a linear b-spline basis with equispaced knots 
+	Proximity operator for the function (lambda_d/rho)*|| ||_{F}^2
+	Parameters:
+		R_dI_inv: nd.array (m_d, m_d), (lambda_d*R_d + rho*I)^{-1}
+		Fbar_d: nd.array (md, K), T_d@F_d@C_d + U_d
+		lambda_d: float, regularization strength 
+		rho: float, regularization for proximity operator 
+	Returns:
+		Z_d: (m_d, K), update based on proximity operator 
+	"""
+	Z_d = rho*R_dI_inv @ Fbar_d
+	return Z_d
+
+def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
+			max_iter=(100, 100), tol_inner=(1e-3, 1e-3), tol_outer=1e-8, init="svd"):
+	"""
+	Implementation of the ADMM algorithm to solve regularized multidimensional optimal basis problem.
 		Arguments: 
 			G: m_1 x...x m_pxN data tensor in the "tilde space"; i.e. Y X_1 U_1' X_2 U_2'  ... X_P U_P'
-			Alst: length p list of variation penalty matrix 
+			Tlst: length p list of T_p constraint matrices 
 			SVDs: length p list of named tuple object holding the SVDs of the basis evaluation matrices 
 			lambdas: length p list of marginal roughness penalties 
-			deltas: length p list containing the marginal spacing for the knots of the pth marginal basis 
 			K: Rank of basis 
+			regularization: type of marginal regularization to use, for now, must be one of ("roughness", "tv")
+			reg_params: dict, {param:value} for any additional parameters the regularization may require
 			max_iter: tuple, maximum number of iterations for inner and outer loops, at 0 and 1 positions respectively
 			tol_inner: tuple, tolerance to exit inner loop (eps_abs, eps_relative)
 		    tol_outer: float, tolerance to exit outer loop 
@@ -500,8 +527,8 @@ def fPC_ADMM(G, Alst, SVDs, lambdas, deltas, K, max_iter=(100, 100), tol_inner=(
 			G_p = tl.unfold(G, p).T
 			W_p = tl.kr([C_i[j] for j in Ps if j != p] + [S_i])
 			Gram_matrix_p = reduce(np.multiply, [C_i[j].T@C_i[j] for j in Ps if j != p] + [S_i.T@S_i])
-			C_p, U_p = update_C(G_p, W_p, Gram_matrix_p, C_i[p], U_i[p], Alst[p], Vs[p], Dinvs[p], 
-								lambdas[p], tol_inner, max_iter_inner)
+			C_p, U_p = update_C(G_p, W_p, Gram_matrix_p, C_i[p], U_i[p], Tlst[p], Vs[p], Dinvs[p], 
+								lambdas[p], p, tol_inner, max_iter_inner, regularization, reg_params)
 			C_i[p] = C_p/np.linalg.norm(C_p, ord="fro")
 			U_i[p] = U_p
 		G_D1 = tl.unfold(G, P).T
@@ -513,18 +540,13 @@ def fPC_ADMM(G, Alst, SVDs, lambdas, deltas, K, max_iter=(100, 100), tol_inner=(
 		delta_factor_norms = [np.linalg.norm(C_i[p] - C_i_init[p], ord="fro") for p in Ps] + [np.linalg.norm(S_i - S_i_init)]
 		FLAG = np.all([norm < tol_outer for norm in delta_factor_norms])
 		itr += 1
-		#print("Finished outer iteration ", itr)
-		## 1) add Frob-norm regularization step for each of factor matrices for stability, see section 4 of Huang 2016
-		#norms = [np.linalg.norm(C_i[p], ord="fro") for p in Ps] + [np.linalg.norm(S_i, ord="fro")]
-		#C_i = [C_i[p]/norms[p] for p in Ps] 
-		#S_i = S_i/norms[-1]
-		#scale = np.prod(norms)
-		#print(delta_factor_norms)
-		## 2) Residual tensor norm
+		## Residual tensor norm
 		#Ghat = np.zeros(G.shape)
 		#for k in range(K):
 		#	Ghat += reduce(np.multiply.outer, [C_i[p][:,k].ravel() for p in Ps] + [S_i[:,k].ravel()])
 		#residual_of_approx = G - scale*Ghat 
 		#residual_norm = np.sqrt(inner(residual_of_approx, residual_of_approx))
-		#print(residual_norm)
+		#print(delta_factor_norms)
+		#print("residual norm", residual_norm)
+		#print("iteration", itr)
 	return C_i, S_i, scale
