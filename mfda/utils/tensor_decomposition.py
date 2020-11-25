@@ -391,7 +391,7 @@ def fCP_TPA(G, Jlst, Rlst, SVDs, lambdas, K, max_iter=100, tol=1e-8, init="svd",
 	return Ctilde, Smat, scalars
 
 #### ADMM ####
-def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol, max_iter, regularization, reg_params):
+def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol, max_iter, regularization, reg_params, rho_min=1e-6):
 	"""
 	Parameters:
 		G_d: nd.array (prod(mlst[-d]*N), m_d) folded data matrix 
@@ -408,6 +408,7 @@ def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol
 		max_iter: int, stopping criteria
 		regularization: type of marginal regularization to use, for now, must be one of ("roughness", "tv")
 		reg_params: dict, {param:value} for any additional parameters the regularization may require
+		rho_min: float, minimum value for rho-normalization parameter to protect against numerical instability.
 	returns:
 		C_d: (m_d, K) update of factor matrix 
 		U_d: (m_d, K) update of dual variable  
@@ -417,7 +418,7 @@ def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol
 	F_d = V_d @ Dinv_d
 	T_tilde_d = T_d @ F_d 
 	Ttildet_Ttilde_d = T_tilde_d.T @ T_tilde_d
-	rho = np.trace(Gram_matrix)/K 
+	rho = np.max((np.trace(Gram_matrix)/K, rho_min))
 	WtG = W_d.T @ G_d
 	if regularization == "roughness":
 		R_d = reg_params.get("Rlst")[d]
