@@ -423,7 +423,7 @@ def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol
 	if regularization == "roughness":
 		R_d = reg_params.get("Rlst")[d]
 		R_dI_inv = np.linalg.inv(lambda_d*R_d + rho*np.eye(m_d))
-	r_crit = np.inf; s_crit = np.inf; i = 0; C_d_tilde_0 = np.zeros(C_d.shape)
+	r_crit = np.inf; s_crit = np.inf; i = 0; Z_d_0 = np.zeros(C_d.shape)
 	FLAG = 0 
 	#print("||rho I||_F", np.linalg.norm(rho*np.eye(m_d), ord="fro"), "||lambda_d*R_d||_F", np.linalg.norm(lambda_d*R_d, ord="fro"))
 	while (not FLAG) and (i <= max_iter):
@@ -436,29 +436,31 @@ def update_C(G_d, W_d, Gram_matrix, C_d, U_d, T_d, V_d, Dinv_d, lambda_d, d, tol
 		C_d = C_d_T.T
 		U_d = U_d + T_tilde_d@C_d - Z_d
 		primal_residual = T_tilde_d@C_d - Z_d
-		dual_residual = rho*T_tilde_d.T@(Z_d - C_d_tilde_0) ##double check could also be rho*T_tilde_d@(Z_d - C_d_tilde_0) 
+		dual_residual = rho*T_tilde_d.T@(Z_d - Z_d_0)
 		r_crit = np.linalg.norm(primal_residual, ord="fro")
 		s_crit = np.linalg.norm(dual_residual, ord="fro")
 		tol_primal = np.sqrt(m_d)*tol[0] + tol[1]*np.max((np.linalg.norm(T_tilde_d@C_d, ord="fro"), np.linalg.norm(Z_d)))
 		tol_dual = np.sqrt(m_d)*tol[0] + tol[1]*np.linalg.norm(T_tilde_d.T@U_d, ord="fro")
+		Z_d_0 = Z_d
 		i += 1
-		#print("Primal Residual", r_crit, tol_primal)
-		#print("Dual Residual", s_crit, tol_dual)
-		#print("iteration", i)
 		if (r_crit < tol_primal) and (s_crit < tol_dual):
 			FLAG = 1
+	#print("Primal Residual", r_crit, tol_primal)
+	#print("Dual Residual", s_crit, tol_dual)
+	#print("iteration", i)
 	return C_d, U_d
 
-def update_S(G_D1, W_D1, Gram_matrix):
+def update_S(G_D1, W_D1, Gram_matrix, gamma=0.0):
 	"""
 	Parameters:
 		G_D1: nd.array (prod(mlst), N) folded data matrix 
 		W_D1: nd.array (prod(mlst), K) Khatri-Rao product 
 		Gram_matrix: nd.array (K,K) W_D1.T @ W_D1
+		gamma: float, ridge regularization strength
 	Returns: 
 		S_hat: nd.array (N, K) update of subject mode factors
 	"""
-	S_hat = np.linalg.inv(Gram_matrix) @ W_D1.T @ G_D1 
+	S_hat = np.linalg.inv(Gram_matrix + gamma*np.eye(Gram_matrix.shape[0])) @ W_D1.T @ G_D1 
 	return S_hat.T  
 
 def l1_proximity_operator(Fbar_d, lambda_d, rho):
@@ -535,7 +537,7 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 		G_D1 = tl.unfold(G, P).T
 		W_D1 = tl.kr(C_i)
 		Gram_matrix_D1 = reduce(np.multiply, [C_i[j].T@C_i[j] for j in Ps])
-		S_i = update_S(G_D1, W_D1, Gram_matrix_D1)
+		S_i = update_S(G_D1, W_D1, Gram_matrix_D1, gamma=lambdas[0])
 		scale = np.linalg.norm(S_i, ord="fro")
 		S_i = S_i /scale
 		delta_factor_norms = [np.linalg.norm(C_i[p] - C_i_init[p], ord="fro") for p in Ps] + [np.linalg.norm(S_i - S_i_init)]
@@ -549,5 +551,5 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 		#residual_norm = np.sqrt(inner(residual_of_approx, residual_of_approx))
 		#print(delta_factor_norms)
 		#print("residual norm", residual_norm)
-		#print("iteration", itr)
+		#print("outer iteration", itr)
 	return C_i, S_i, scale
