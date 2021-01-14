@@ -490,7 +490,7 @@ def l2_proximity_operator(R_dI_inv, Fbar_d, lambda_d, rho):
 	Z_d = rho*R_dI_inv @ Fbar_d
 	return Z_d
 
-def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
+def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params, gamma=1e-8,
 			max_iter=(100, 100), tol_inner=(1e-3, 1e-3), tol_outer=1e-8, 
 			init="svd", verbose=False):
 	"""
@@ -503,6 +503,7 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 			K: Rank of basis 
 			regularization: type of marginal regularization to use, for now, must be one of ("roughness", "tv")
 			reg_params: dict, {param:value} for any additional parameters the regularization may require
+			gamma: float, ridge penalty for subject factor 
 			max_iter: tuple, maximum number of iterations for inner and outer loops, at 0 and 1 positions respectively
 			tol_inner: tuple, tolerance to exit inner loop (eps_abs, eps_relative)
 		    tol_outer: float, tolerance to exit outer loop 
@@ -539,7 +540,7 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 		G_D1 = tl.unfold(G, P).T
 		W_D1 = tl.kr(C_i)
 		Gram_matrix_D1 = reduce(np.multiply, [C_i[j].T@C_i[j] for j in Ps])
-		S_i = update_S(G_D1, W_D1, Gram_matrix_D1, gamma=lambdas[0])
+		S_i = update_S(G_D1, W_D1, Gram_matrix_D1, gamma=gamma)
 		scale = np.linalg.norm(S_i, ord="fro")
 		S_i = S_i /scale
 		delta_factor_norms = [np.linalg.norm(C_i[p] - C_i_init[p], ord="fro") for p in Ps] + [np.linalg.norm(S_i - S_i_init)]
