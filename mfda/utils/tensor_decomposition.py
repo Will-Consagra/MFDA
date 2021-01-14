@@ -491,7 +491,8 @@ def l2_proximity_operator(R_dI_inv, Fbar_d, lambda_d, rho):
 	return Z_d
 
 def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
-			max_iter=(100, 100), tol_inner=(1e-3, 1e-3), tol_outer=1e-8, init="svd"):
+			max_iter=(100, 100), tol_inner=(1e-3, 1e-3), tol_outer=1e-8, 
+			init="svd", verbose=False):
 	"""
 	Implementation of the ADMM algorithm to solve regularized multidimensional optimal basis problem.
 		Arguments: 
@@ -506,6 +507,7 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 			tol_inner: tuple, tolerance to exit inner loop (eps_abs, eps_relative)
 		    tol_outer: float, tolerance to exit outer loop 
 			init: {"svd", "random"}; see initialize_factors in tensorly 
+			verbose: boolean, specify verbosity 
 	"""
 	## Set parameters and intitialize factors 
 	max_iter_inner, max_iter_outer = max_iter
@@ -549,7 +551,7 @@ def fPC_ADMM(G, Tlst, SVDs, lambdas, K, regularization, reg_params,
 		#	Ghat += reduce(np.multiply.outer, [C_i[p][:,k].ravel() for p in Ps] + [S_i[:,k].ravel()])
 		#residual_of_approx = G - scale*Ghat 
 		#residual_norm = np.sqrt(inner(residual_of_approx, residual_of_approx))
-		#print(delta_factor_norms)
 		#print("residual norm", residual_norm)
-		#print("outer iteration", itr)
+		if verbose:
+			print("outer iteration", itr, "delta factor norms:", delta_factor_norms)
 	return C_i, S_i, scale

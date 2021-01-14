@@ -87,7 +87,8 @@ def post_hoc_fpca(S, J_psi, R_psi, lam=0.0):
 		D_pca.fit(D.T)
 		B = SL @ D_pca.components_.T
 		for k in range(B.shape[1]):
-			B[:, k] = B[:, k] / np.sqrt(B[:, k].reshape((1,K))@J_psi@B[:, k].reshape((K,1))).item()
+			#B[:, k] = B[:, k] / np.sqrt(B[:, k].reshape((1,K))@J_psi@B[:, k].reshape((K,1))).item()
+			B[:, k] = B[:, k] / np.sqrt(B[:, k].reshape((1,K))@B[:, k].reshape((K,1))).item()
 		gamma = D_pca.singular_values_
 	return B, gamma
 
